@@ -31,12 +31,15 @@ def cli(log_level, log_file):
               help='Positions to include (default: all)')
 @click.option('--output', '-o', type=click.Path(),
               help='Output file path (CSV format)')
-def weekly(scoring, week, season, positions, output):
+@click.option('--injuries', default=True, type=bool,
+              help='Apply injury filtering (default: True)')
+def weekly(scoring, week, season, positions, output, injuries):
     """Generate weekly fantasy point projections."""
     click.echo(f"Generating weekly projections for week {week}...")
+    click.echo(f"Injury filtering: {'ON' if injuries else 'OFF'}")
     
     # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring)
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries)
     
     # Generate projections
     projections = engine.get_weekly_projections(
@@ -81,12 +84,15 @@ def weekly(scoring, week, season, positions, output):
               help='Positions to include (default: all)')
 @click.option('--output', '-o', type=click.Path(),
               help='Output file path (CSV format)')
-def seasonal(scoring, season, positions, output):
+@click.option('--injuries', default=True, type=bool,
+              help='Apply injury filtering (default: True)')
+def seasonal(scoring, season, positions, output, injuries):
     """Generate seasonal fantasy point projections."""
     click.echo(f"Generating seasonal projections for {season or 'current season'}...")
+    click.echo(f"Injury filtering: {'ON' if injuries else 'OFF'}")
     
     # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring)
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries)
     
     # Generate projections
     projections = engine.get_seasonal_projections(

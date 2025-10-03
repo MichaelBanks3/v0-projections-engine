@@ -17,12 +17,14 @@ class ProjectionEngine:
     
     def __init__(self, 
                  scoring_system: Union[str, ScoringType, ScoringSystem] = ScoringType.PPR,
-                 cache_dir: Optional[str] = None):
+                 cache_dir: Optional[str] = None,
+                 injury_filter: bool = True):
         """Initialize the projection engine.
         
         Args:
             scoring_system: Scoring system to use ('standard', 'ppr', 'half_ppr', or ScoringSystem instance)
             cache_dir: Directory for caching data
+            injury_filter: Whether to apply injury filtering
         """
         # Set up scoring system
         if isinstance(scoring_system, str):
@@ -43,10 +45,13 @@ class ProjectionEngine:
             'TE': StatisticalProjector('TE')
         }
         
+        # Injury filtering settings
+        self.injury_filter = injury_filter
+        
         self._is_fitted = False
         self._training_data = None
         
-        logger.info(f"ProjectionEngine initialized with {scoring_system} scoring")
+        logger.info(f"ProjectionEngine initialized with {scoring_system} scoring, injury_filter={injury_filter}")
     
     def fit(self, seasons: Optional[List[int]] = None) -> None:
         """Train projection models on historical data.
@@ -367,7 +372,9 @@ class ProjectionEngine:
         # Apply bye week filter
         projections_df = self._apply_bye_week_filter(projections_df, week, season)
         
-        # TODO: Add injury filters, inactive filters, etc.
+        # Apply injury filter if enabled
+        if self.injury_filter:
+            projections_df = self._apply_injury_filter(projections_df)
         
         return projections_df
     
@@ -408,6 +415,84 @@ class ProjectionEngine:
             
         except Exception as e:
             logger.error(f"Error applying bye week filter: {e}")
+            # Return original dataframe if there's an error
+            return projections_df
+    
+    def _apply_injury_filter(self, projections_df: pd.DataFrame) -> pd.DataFrame:
+        """Apply injury filtering to zero out injured players.
+        
+        Args:
+            projections_df: DataFrame with projections
+            
+        Returns:
+            DataFrame with injured players zeroed out
+        """
+        try:
+            # Import here to avoid circular imports
+            from ..data.sleeper_injuries import get_injury_data_with_cache
+            from ..data.player_mapping import get_player_mapper
+            from .injury_gate import apply_injury_gate, get_injury_summary, log_injury_summary
+            
+            # Get injury data
+            injury_data = get_injury_data_with_cache()
+            if not injury_data:
+                logger.warning("No injury data available, skipping injury filter")
+                return projections_df
+            
+            # Get player mapper
+            mapper = get_player_mapper()
+            
+            # Add injury status columns
+            projections_df['injury_status'] = ''
+            projections_df['roster_status'] = ''
+            projections_df['points_adj'] = projections_df['projected_points'].copy()
+            
+            zeroed_count = 0
+            
+            # Apply injury gate to each player
+            for index, row in projections_df.iterrows():
+                gsis_id = row.get('player_id', '')
+                if not gsis_id:
+                    continue
+                
+                # Map gsis_id to sleeper_id
+                sleeper_id = mapper.gsis_to_sleeper_id(gsis_id)
+                if not sleeper_id:
+                    # No mapping available - treat as active
+                    continue
+                
+                # Get injury data for this player
+                player_injury_data = injury_data.get(sleeper_id, {})
+                status = player_injury_data.get('status', '') or ''
+                injury_status = player_injury_data.get('injury_status', '') or ''
+                
+                # Store status for debugging
+                projections_df.at[index, 'injury_status'] = injury_status
+                projections_df.at[index, 'roster_status'] = status
+                
+                # Apply injury gate
+                original_points = row['projected_points']
+                adjusted_points = apply_injury_gate(original_points, status, injury_status)
+                projections_df.at[index, 'points_adj'] = adjusted_points
+                
+                # Update projected_points if zeroed out
+                if adjusted_points == 0.0 and original_points > 0:
+                    projections_df.at[index, 'projected_points'] = 0.0
+                    projections_df.at[index, 'confidence_lower'] = 0.0
+                    projections_df.at[index, 'confidence_upper'] = 0.0
+                    zeroed_count += 1
+            
+            # Log summary
+            summary = get_injury_summary(injury_data)
+            log_injury_summary(summary, "live+cache")
+            
+            if zeroed_count > 0:
+                logger.info(f"Injury filter zeroed out {zeroed_count} players")
+            
+            return projections_df
+            
+        except Exception as e:
+            logger.error(f"Error applying injury filter: {e}")
             # Return original dataframe if there's an error
             return projections_df
 
