@@ -33,13 +33,16 @@ def cli(log_level, log_file):
               help='Output file path (CSV format)')
 @click.option('--injuries', default=True, type=bool,
               help='Apply injury filtering (default: True)')
-def weekly(scoring, week, season, positions, output, injuries):
+@click.option('--qb-benching', default=True, type=bool,
+              help='Apply QB benching filter (default: True)')
+def weekly(scoring, week, season, positions, output, injuries, qb_benching):
     """Generate weekly fantasy point projections."""
     click.echo(f"Generating weekly projections for week {week}...")
     click.echo(f"Injury filtering: {'ON' if injuries else 'OFF'}")
+    click.echo(f"QB benching filter: {'ON' if qb_benching else 'OFF'}")
     
     # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries)
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries, qb_benching_filter=qb_benching)
     
     # Generate projections
     projections = engine.get_weekly_projections(
@@ -86,13 +89,16 @@ def weekly(scoring, week, season, positions, output, injuries):
               help='Output file path (CSV format)')
 @click.option('--injuries', default=True, type=bool,
               help='Apply injury filtering (default: True)')
-def seasonal(scoring, season, positions, output, injuries):
+@click.option('--qb-benching', default=True, type=bool,
+              help='Apply QB benching filter (default: True)')
+def seasonal(scoring, season, positions, output, injuries, qb_benching):
     """Generate seasonal fantasy point projections."""
     click.echo(f"Generating seasonal projections for {season or 'current season'}...")
     click.echo(f"Injury filtering: {'ON' if injuries else 'OFF'}")
+    click.echo(f"QB benching filter: {'ON' if qb_benching else 'OFF'}")
     
     # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries)
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries, qb_benching_filter=qb_benching)
     
     # Generate projections
     projections = engine.get_seasonal_projections(

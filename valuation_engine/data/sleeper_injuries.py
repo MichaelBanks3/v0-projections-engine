@@ -89,6 +89,8 @@ class SleeperInjuryFetcher:
                 'status': player_data.get('status', ''),
                 'injury_status': player_data.get('injury_status', ''),
                 'news_updated': player_data.get('news_updated', ''),
+                'depth_chart_order': player_data.get('depth_chart_order'),
+                'depth_chart_position': player_data.get('depth_chart_position'),
             }
         
         return normalized
