@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Optional, Any, Union
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 
 from ..data.nfl_data_loader import NFLDataLoader
 from ..config.scoring import ScoringSystem, ScoringType
@@ -119,7 +120,25 @@ class ProjectionEngine:
         projections = []
         
         for _, player in rosters.iterrows():
-            player_id = player['gsis_id']  # Use gsis_id from roster data
+            # Use gsis_id from roster data, but check if we have a mapped version
+            roster_gsis_id = player['gsis_id']
+            player_id = roster_gsis_id  # Default to roster gsis_id
+            
+            # Check if we have a mapping for this player that should override the roster gsis_id
+            try:
+                from ..data.player_mapping import get_player_mapper
+                mapper = get_player_mapper()
+                # Look for any mapping that uses this roster gsis_id as the sleeper_id
+                # This handles cases where we have ROOKIE_, FRINGE_, or MISSING_ prefixes
+                if hasattr(mapper, 'sleeper_to_gsis') and mapper.sleeper_to_gsis:
+                    # Check if this roster_gsis_id is actually a Sleeper ID in our mapping
+                    if str(roster_gsis_id) in mapper.sleeper_to_gsis:
+                        mapped_gsis_id = mapper.sleeper_to_gsis[str(roster_gsis_id)]
+                        if mapped_gsis_id != roster_gsis_id:
+                            player_id = mapped_gsis_id
+                            logger.debug(f"Using mapped GSIS ID {mapped_gsis_id} instead of roster GSIS ID {roster_gsis_id}")
+            except Exception as e:
+                logger.debug(f"Could not check mapping for {roster_gsis_id}: {e}")
             position = player['position']
             
             # Skip if we don't have a projector for this position
@@ -202,7 +221,25 @@ class ProjectionEngine:
         projections = []
         
         for _, player in rosters.iterrows():
-            player_id = player['gsis_id']  # Use gsis_id from roster data
+            # Use gsis_id from roster data, but check if we have a mapped version
+            roster_gsis_id = player['gsis_id']
+            player_id = roster_gsis_id  # Default to roster gsis_id
+            
+            # Check if we have a mapping for this player that should override the roster gsis_id
+            try:
+                from ..data.player_mapping import get_player_mapper
+                mapper = get_player_mapper()
+                # Look for any mapping that uses this roster gsis_id as the sleeper_id
+                # This handles cases where we have ROOKIE_, FRINGE_, or MISSING_ prefixes
+                if hasattr(mapper, 'sleeper_to_gsis') and mapper.sleeper_to_gsis:
+                    # Check if this roster_gsis_id is actually a Sleeper ID in our mapping
+                    if str(roster_gsis_id) in mapper.sleeper_to_gsis:
+                        mapped_gsis_id = mapper.sleeper_to_gsis[str(roster_gsis_id)]
+                        if mapped_gsis_id != roster_gsis_id:
+                            player_id = mapped_gsis_id
+                            logger.debug(f"Using mapped GSIS ID {mapped_gsis_id} instead of roster GSIS ID {roster_gsis_id}")
+            except Exception as e:
+                logger.debug(f"Could not check mapping for {roster_gsis_id}: {e}")
             position = player['position']
             
             # Skip if we don't have a projector for this position
@@ -228,7 +265,7 @@ class ProjectionEngine:
                     'player_id': player_id,
                     'player_name': player.get('full_name', player.get('player_name', '')),
                     'position': position,
-                    'team': player.get('team', ''),
+                    'team': player.get('team', ''),  # Will be updated with current team from Sleeper later
                     'season': season
                 })
                 
@@ -372,6 +409,9 @@ class ProjectionEngine:
         """
         logger.info(f"Applying availability filters for week {week}, season {season}")
         
+        # Update team data from Sleeper (current team assignments)
+        projections_df = self._update_team_data_from_sleeper(projections_df)
+        
         # Apply bye week filter
         projections_df = self._apply_bye_week_filter(projections_df, week, season)
         
@@ -384,6 +424,62 @@ class ProjectionEngine:
             projections_df = self._apply_qb_benching_filter(projections_df)
         
         return projections_df
+    
+    def _update_team_data_from_sleeper(self, projections_df: pd.DataFrame) -> pd.DataFrame:
+        """Update team data from Sleeper to use current team assignments.
+        
+        Args:
+            projections_df: DataFrame with projections
+            
+        Returns:
+            DataFrame with updated team data from Sleeper
+        """
+        try:
+            # Import here to avoid circular imports
+            from ..data.sleeper_injuries import get_injury_data_with_cache
+            from ..data.player_mapping import get_player_mapper
+            
+            # Get Sleeper data for current team assignments
+            injury_data = get_injury_data_with_cache()
+            if not injury_data:
+                logger.warning("No Sleeper data available for team updates, using nflverse team data")
+                return projections_df
+            
+            # Get player mapper
+            mapper = get_player_mapper()
+            
+            team_updates = 0
+            
+            # Update team data for each player
+            for index, row in projections_df.iterrows():
+                gsis_id = row.get('player_id', '')
+                if not gsis_id:
+                    continue
+                
+                # Map gsis_id to sleeper_id
+                sleeper_id = mapper.gsis_to_sleeper_id(gsis_id)
+                if not sleeper_id:
+                    continue
+                
+                # Get Sleeper data for this player (handle string/int key mismatch)
+                player_data = injury_data.get(sleeper_id, {})
+                if not player_data and sleeper_id.isdigit():
+                    player_data = injury_data.get(int(sleeper_id), {})
+                
+                if player_data:
+                    sleeper_team = player_data.get('team', '')
+                    if sleeper_team and sleeper_team != row.get('team', ''):
+                        projections_df.at[index, 'team'] = sleeper_team
+                        team_updates += 1
+            
+            if team_updates > 0:
+                logger.info(f"Updated team data for {team_updates} players from Sleeper")
+            
+            return projections_df
+            
+        except Exception as e:
+            logger.error(f"Error updating team data from Sleeper: {e}")
+            return projections_df
     
     def _apply_bye_week_filter(self, projections_df: pd.DataFrame, week: int, season: int) -> pd.DataFrame:
         """Zero out projections for players whose teams are on bye.
@@ -468,10 +564,63 @@ class ProjectionEngine:
                     # No mapping available - treat as active
                     continue
                 
+                # Debug logging for ROOKIE_ players
+                if gsis_id.startswith('ROOKIE_'):
+                    logger.debug(f"Processing ROOKIE_ player: {row.get('player_name', 'Unknown')} (GSIS: {gsis_id}, Sleeper: {sleeper_id})")
+                
                 # Get injury data for this player
                 player_injury_data = injury_data.get(sleeper_id, {})
                 status = player_injury_data.get('status', '') or ''
                 injury_status = player_injury_data.get('injury_status', '') or ''
+                
+                # Check if this player is on practice squad based on Sleeper data pattern
+                # Practice squad players are marked as "Active" but have no depth chart info
+                is_practice_squad = (
+                    status == 'Active' and 
+                    player_injury_data.get('active') == True and 
+                    player_injury_data.get('depth_chart_position') is None and 
+                    player_injury_data.get('depth_chart_order') is None and
+                    player_injury_data.get('team') and 
+                    player_injury_data.get('position') in ['QB', 'RB', 'WR', 'TE', 'K']
+                )
+                
+                if is_practice_squad:
+                    status = 'Practice Squad'
+                    logger.debug(f"Detected practice squad player: {row.get('player_name', 'Unknown')} (Sleeper ID: {sleeper_id})")
+                
+                # Check if we have a status override in our mapping table
+                # But don't override automatic practice squad detection
+                try:
+                    import pandas as pd
+                    mapping_file = Path("data/player_id_mapping.csv")
+                    if mapping_file.exists():
+                        mapping_df = pd.read_csv(mapping_file)
+                        # Find the mapping entry for this player
+                        player_mapping = mapping_df[
+                            (mapping_df['gsis_id'] == gsis_id) & 
+                            (mapping_df['sleeper_id'] == str(sleeper_id))
+                        ]
+                        if not player_mapping.empty:
+                            mapping_status = str(player_mapping.iloc[0].get('status', '')).strip()
+                            mapping_injury_status = str(player_mapping.iloc[0].get('injury_status', '')).strip()
+                            
+                            # Convert 'nan' strings to empty strings
+                            if mapping_status.lower() == 'nan':
+                                mapping_status = ''
+                            if mapping_injury_status.lower() == 'nan':
+                                mapping_injury_status = ''
+                            
+                            # Use mapping table status if it's different from Sleeper
+                            # But don't override automatic practice squad detection
+                            if mapping_status and mapping_status != status and status != 'Practice Squad':
+                                status = mapping_status
+                                logger.debug(f"Using mapping table status '{mapping_status}' instead of Sleeper status '{player_injury_data.get('status', '')}' for {row.get('player_name', 'Unknown')}")
+                            
+                            if mapping_injury_status and mapping_injury_status != injury_status:
+                                injury_status = mapping_injury_status
+                                logger.debug(f"Using mapping table injury status '{mapping_injury_status}' instead of Sleeper injury status '{player_injury_data.get('injury_status', '')}' for {row.get('player_name', 'Unknown')}")
+                except Exception as e:
+                    logger.debug(f"Could not load mapping table for status override: {e}")
                 
                 # Store status for debugging
                 projections_df.at[index, 'injury_status'] = injury_status
@@ -481,6 +630,10 @@ class ProjectionEngine:
                 original_points = row['projected_points']
                 adjusted_points = apply_injury_gate(original_points, status, injury_status)
                 projections_df.at[index, 'points_adj'] = adjusted_points
+                
+                # Debug logging for ROOKIE_ players being zeroed out
+                if gsis_id.startswith('ROOKIE_') and adjusted_points == 0.0 and original_points > 0:
+                    logger.info(f"Zeroing out ROOKIE_ player: {row.get('player_name', 'Unknown')} (Status: {status}, Injury: {injury_status})")
                 
                 # Update projected_points if zeroed out
                 if adjusted_points == 0.0 and original_points > 0:

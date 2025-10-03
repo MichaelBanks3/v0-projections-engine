@@ -21,11 +21,11 @@ def decision_from_fields(status: str, injury_status: str) -> str:
     injury_status_upper = (injury_status or "").upper() if injury_status is not None else ""
     
     # Zero out if roster status indicates long-term absence
-    if status_upper in ['IR', 'PUP', 'NFI', 'SUSPENDED', 'INACTIVE']:
+    if status_upper in ['IR', 'PUP', 'NFI', 'SUSPENDED', 'INACTIVE', 'PRACTICE SQUAD']:
         return "zero"
     
     # Zero out if injury status indicates game absence
-    if injury_status_upper in ['OUT', 'DOUBTFUL', 'IR']:
+    if injury_status_upper in ['OUT', 'DOUBTFUL', 'IR', 'PUP']:
         return "zero"
     
     # Pass through for all other cases

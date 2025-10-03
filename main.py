@@ -31,18 +31,14 @@ def cli(log_level, log_file):
               help='Positions to include (default: all)')
 @click.option('--output', '-o', type=click.Path(),
               help='Output file path (CSV format)')
-@click.option('--injuries', default=True, type=bool,
-              help='Apply injury filtering (default: True)')
-@click.option('--qb-benching', default=True, type=bool,
-              help='Apply QB benching filter (default: True)')
-def weekly(scoring, week, season, positions, output, injuries, qb_benching):
+def weekly(scoring, week, season, positions, output):
     """Generate weekly fantasy point projections."""
     click.echo(f"Generating weekly projections for week {week}...")
-    click.echo(f"Injury filtering: {'ON' if injuries else 'OFF'}")
-    click.echo(f"QB benching filter: {'ON' if qb_benching else 'OFF'}")
+    click.echo("Injury filtering: ON")
+    click.echo("QB benching filter: ON")
     
-    # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries, qb_benching_filter=qb_benching)
+    # Initialize engine with injury and QB benching filters always enabled
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=True, qb_benching_filter=True)
     
     # Generate projections
     projections = engine.get_weekly_projections(
@@ -87,18 +83,14 @@ def weekly(scoring, week, season, positions, output, injuries, qb_benching):
               help='Positions to include (default: all)')
 @click.option('--output', '-o', type=click.Path(),
               help='Output file path (CSV format)')
-@click.option('--injuries', default=True, type=bool,
-              help='Apply injury filtering (default: True)')
-@click.option('--qb-benching', default=True, type=bool,
-              help='Apply QB benching filter (default: True)')
-def seasonal(scoring, season, positions, output, injuries, qb_benching):
+def seasonal(scoring, season, positions, output):
     """Generate seasonal fantasy point projections."""
     click.echo(f"Generating seasonal projections for {season or 'current season'}...")
-    click.echo(f"Injury filtering: {'ON' if injuries else 'OFF'}")
-    click.echo(f"QB benching filter: {'ON' if qb_benching else 'OFF'}")
+    click.echo("Injury filtering: ON")
+    click.echo("QB benching filter: ON")
     
-    # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring, injury_filter=injuries, qb_benching_filter=qb_benching)
+    # Initialize engine with injury and QB benching filters always enabled
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=True, qb_benching_filter=True)
     
     # Generate projections
     projections = engine.get_seasonal_projections(
@@ -146,8 +138,8 @@ def player(player_id, scoring, week, season, type):
     """Get detailed projection for a specific player."""
     click.echo(f"Getting projections for player {player_id}...")
     
-    # Initialize engine
-    engine = ProjectionEngine(scoring_system=scoring)
+    # Initialize engine with injury and QB benching filters always enabled
+    engine = ProjectionEngine(scoring_system=scoring, injury_filter=True, qb_benching_filter=True)
     
     try:
         if type in ['weekly', 'both']:
@@ -192,8 +184,8 @@ def test():
     click.echo("Testing Fantasy Football Valuation Engine...")
     
     try:
-        # Initialize engine
-        engine = ProjectionEngine(scoring_system='ppr')
+        # Initialize engine with injury and QB benching filters always enabled
+        engine = ProjectionEngine(scoring_system='ppr', injury_filter=True, qb_benching_filter=True)
         
         click.echo("✓ Engine initialized successfully")
         
