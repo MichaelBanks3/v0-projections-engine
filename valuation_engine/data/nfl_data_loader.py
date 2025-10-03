@@ -220,4 +220,49 @@ class NFLDataLoader:
         except Exception as e:
             logger.error(f"Error getting player data for {player_id}: {e}")
             raise
+    
+    def get_team_bye_weeks(self, season: int) -> Dict[str, int]:
+        """Get bye weeks for each team in a season.
+        
+        Args:
+            season: NFL season year
+            
+        Returns:
+            Dictionary mapping team abbreviation to bye week number
+        """
+        logger.info(f"Determining bye weeks for season {season}")
+        
+        try:
+            # Load schedule data
+            schedules = self.load_schedules(seasons=[season])
+            
+            # Get all weeks in the season (typically 1-18)
+            all_weeks = set(range(1, 19))  # Regular season weeks
+            
+            # For each team, find which week they don't have a game
+            bye_weeks = {}
+            
+            for team in schedules['home_team'].unique():
+                # Get all weeks this team has a game (home or away)
+                team_games = schedules[
+                    (schedules['home_team'] == team) | 
+                    (schedules['away_team'] == team)
+                ]
+                
+                weeks_with_games = set(team_games['week'].unique())
+                bye_week = all_weeks - weeks_with_games
+                
+                if len(bye_week) == 1:
+                    bye_weeks[team] = list(bye_week)[0]
+                elif len(bye_week) == 0:
+                    logger.warning(f"No bye week found for team {team}")
+                else:
+                    logger.warning(f"Multiple bye weeks found for team {team}: {bye_week}")
+            
+            logger.info(f"Found bye weeks for {len(bye_weeks)} teams")
+            return bye_weeks
+            
+        except Exception as e:
+            logger.error(f"Error determining bye weeks: {e}")
+            raise
 

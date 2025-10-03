@@ -156,6 +156,9 @@ class ProjectionEngine:
         projections_df = pd.DataFrame(projections)
         projections_df = projections_df.sort_values('projected_points', ascending=False)
         
+        # Apply availability filters (bye weeks, injuries, etc.)
+        projections_df = self._apply_availability_filters(projections_df, week, season)
+        
         logger.info(f"Generated {len(projections_df)} weekly projections for week {week}, {season}")
         return projections_df
     
@@ -233,6 +236,9 @@ class ProjectionEngine:
         
         projections_df = pd.DataFrame(projections)
         projections_df = projections_df.sort_values('projected_points', ascending=False)
+        
+        # Note: Seasonal projections don't apply week-specific availability filters
+        # as they represent season-long expectations
         
         logger.info(f"Generated {len(projections_df)} seasonal projections for {season}")
         return projections_df
@@ -344,4 +350,64 @@ class ProjectionEngine:
         player_data = player_data.sort_values(['season', 'week'], ascending=False)
         
         return player_data
+    
+    def _apply_availability_filters(self, projections_df: pd.DataFrame, week: int, season: int) -> pd.DataFrame:
+        """Apply availability filters (bye weeks, injuries, etc.) to projections.
+        
+        Args:
+            projections_df: DataFrame with projections
+            week: Target week
+            season: Target season
+            
+        Returns:
+            DataFrame with availability filters applied
+        """
+        logger.info(f"Applying availability filters for week {week}, season {season}")
+        
+        # Apply bye week filter
+        projections_df = self._apply_bye_week_filter(projections_df, week, season)
+        
+        # TODO: Add injury filters, inactive filters, etc.
+        
+        return projections_df
+    
+    def _apply_bye_week_filter(self, projections_df: pd.DataFrame, week: int, season: int) -> pd.DataFrame:
+        """Zero out projections for players whose teams are on bye.
+        
+        Args:
+            projections_df: DataFrame with projections
+            week: Target week
+            season: Target season
+            
+        Returns:
+            DataFrame with bye week players zeroed out
+        """
+        try:
+            # Get bye weeks for the season
+            bye_weeks = self.data_loader.get_team_bye_weeks(season)
+            
+            # Find teams on bye this week
+            teams_on_bye = [team for team, bye_week in bye_weeks.items() if bye_week == week]
+            
+            if teams_on_bye:
+                logger.info(f"Teams on bye in week {week}: {teams_on_bye}")
+                
+                # Zero out projections for players on bye teams
+                bye_mask = projections_df['team'].isin(teams_on_bye)
+                bye_count = bye_mask.sum()
+                
+                if bye_count > 0:
+                    projections_df.loc[bye_mask, 'projected_points'] = 0.0
+                    projections_df.loc[bye_mask, 'confidence_lower'] = 0.0
+                    projections_df.loc[bye_mask, 'confidence_upper'] = 0.0
+                    logger.info(f"Zeroed out {bye_count} players on bye teams")
+            else:
+                logger.info(f"No teams on bye in week {week}")
+                
+            return projections_df
+            
+        except Exception as e:
+            logger.error(f"Error applying bye week filter: {e}")
+            # Return original dataframe if there's an error
+            return projections_df
 
